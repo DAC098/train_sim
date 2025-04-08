@@ -169,6 +169,8 @@ fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
         AppAlgo::Simpsons => summation::simpsons,
     };
 
+    let log_time_diff = std::time::Duration::from_secs(10);
+    let mut last_time = std::time::Instant::now();
     let mut timer = time::Timing::default();
 
     for iter in 0..(opts.iterations) {
@@ -183,6 +185,14 @@ fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
         calc_range(length, opts.step, &vel_lookup, sum_cb, &mut pos_lookup);
 
         timer.update(start.elapsed());
+
+        let log_time = std::time::Instant::now();
+
+        if log_time - last_time > log_time_diff {
+            println!("iteration: {iter} {timer}");
+
+            last_time = log_time;
+        }
 
         if iter == opts.iterations - 1 {
             if let Some(last) = vel_lookup.inner().last() {
@@ -268,7 +278,7 @@ fn run_sim_rayon(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) 
         let log_time = std::time::Instant::now();
 
         if log_time - last_time > log_time_diff {
-            println!("iteration: {iter}");
+            println!("iteration: {iter} {timer}");
 
             last_time = log_time;
         }
