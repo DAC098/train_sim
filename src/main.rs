@@ -7,7 +7,7 @@ use clap::{Parser, ValueEnum, Subcommand, Args};
 mod time;
 mod summation;
 
-use summation::{InterpolateLookup, Callable};
+use summation::InterpolateLookup;
 
 #[derive(Debug, Parser)]
 struct App {
@@ -41,6 +41,7 @@ enum AppAlgo {
     MidRiemann,
     RightRiemann,
     Trapezoidal,
+    Simpsons,
 }
 
 #[derive(Debug, Subcommand)]
@@ -143,11 +144,17 @@ impl CsvSim {
     }
 }
 
-fn run_sim<T>(length: usize, opts: SimOpts, accel_lookup: T)
-where
-    T: Callable<f64>
-{
+fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
     println!("lenth: {length} step: {} iterations: {}", opts.step, opts.iterations);
+
+    let sum_cb = match opts.algo {
+        //_ => summation::left_riemann as fn(f64, f64, u32, &InterpolateLookup) -> f64,
+        AppAlgo::LeftRiemann => summation::left_riemann,
+        AppAlgo::MidRiemann => summation::mid_riemann,
+        AppAlgo::RightRiemann => summation::right_riemann,
+        AppAlgo::Trapezoidal => summation::trapezoidal,
+        AppAlgo::Simpsons => summation::simpsons,
+    };
 
     let mut timer = time::Timing::default();
 
@@ -159,8 +166,8 @@ where
 
         let start = std::time::Instant::now();
 
-        calc_range(length, opts.step, &accel_lookup, &mut vel_lookup);
-        calc_range(length, opts.step, &vel_lookup, &mut pos_lookup);
+        calc_range(length, opts.step, &accel_lookup, sum_cb, &mut vel_lookup);
+        calc_range(length, opts.step, &vel_lookup, sum_cb, &mut pos_lookup);
 
         timer.update(start.elapsed());
 
@@ -178,14 +185,17 @@ where
     println!("time: {timer}");
 }
 
-fn calc_range<T>(length: usize, step: u32, calling: &T, updating: &mut InterpolateLookup)
-where
-    T: Callable<f64>
-{
+fn calc_range(
+    length: usize,
+    step: u32,
+    calling: &InterpolateLookup,
+    sum_cb: fn(f64, f64, u32, &InterpolateLookup) -> f64,
+    updating: &mut InterpolateLookup
+) {
     let mut rolling = 0.0;
 
     for sec in 1..length {
-        let result = summation::simpsons(
+        let result = sum_cb(
             (sec - 1) as f64,
             sec as f64,
             step,

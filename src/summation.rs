@@ -63,8 +63,6 @@ impl Callable<f64> for InterpolateLookup {
     }
 }
 
-pub type Summation<T> = for<'a> fn(T, T, u32, &'a (dyn Callable<T> + 'a)) -> T;
-
 pub fn left_riemann<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
 where
     T: Callable<f64> + ?Sized
