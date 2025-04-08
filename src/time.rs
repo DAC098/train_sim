@@ -37,15 +37,19 @@ impl Default for Timing {
 
 impl Display for Timing {
     fn fmt(&self, f: &mut Formatter<'_>) -> FmtResult {
-        let avg = self.total / self.counted;
+        if self.counted > 1 {
+            let avg = self.total / self.counted;
 
-        write!(
-            f,
-            "min {:#?} max {:#?} avg {:#?} total: {:#?}",
-            self.min,
-            self.max,
-            avg,
-            self.total
-        )
+            write!(
+                f,
+                "min {:#?} max {:#?} avg {:#?} total: {:#?}",
+                self.min,
+                self.max,
+                avg,
+                self.total
+            )
+        } else {
+            write!(f, "{:#?}", self.total)
+        }
     }
 }

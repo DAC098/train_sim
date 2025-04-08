@@ -33,6 +33,10 @@ impl InterpolateLookup {
     pub fn inner(&self) -> &[f64] {
         self.lookup.as_slice()
     }
+
+    pub fn push(&mut self, given: f64) {
+        self.lookup.push(given);
+    }
 }
 
 impl From<Vec<f64>> for InterpolateLookup {
@@ -138,6 +142,31 @@ where
     sum * step
 }
 
+pub fn simpsons<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
+where
+    T: Callable<f64> + ?Sized
+{
+    assert_ne!(iterations, 0);
+
+    let step = (upper - lower) / (iterations as f64);
+    let mut sum = 0.0;
+
+    for iter in 0..=iterations {
+        let i = iter as f64;
+        let x = lower + i * step;
+        let res = cb.call(x);
+
+        if iter == 0 || iter == iterations {
+            sum += res;
+        } else if iter % 2 == 1 {
+            sum += 4.0 * res;
+        } else {
+            sum += 2.0 * res;
+        }
+    }
+
+    step * sum / 3.0
+}
 #[cfg(test)]
 mod test {
     use approx::assert_relative_eq;

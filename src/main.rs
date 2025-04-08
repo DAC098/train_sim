@@ -7,7 +7,7 @@ use clap::{Parser, ValueEnum, Subcommand, Args};
 mod time;
 mod summation;
 
-use summation::InterpolateLookup;
+use summation::{InterpolateLookup, Callable};
 
 #[derive(Debug, Parser)]
 struct App {
@@ -20,12 +20,17 @@ struct App {
 
 #[derive(Debug, Clone, Args)]
 struct SimOpts {
+    /// specifies the summation algorithm to use for the simulation
     #[arg(short, long, default_value("left-riemann"))]
     algo: AppAlgo,
 
+    /// determines the number of times to run the program, for benchmarking
+    /// purposes
     #[arg(short, long, default_value("100"))]
     iterations: u32,
 
+    /// specifies the amount of steps to take in between each summation
+    /// calculation
     #[arg(short, long, default_value("100"))]
     step: u32,
 }
@@ -40,14 +45,17 @@ enum AppAlgo {
 
 #[derive(Debug, Subcommand)]
 enum SimKind {
+    /// runs a simulation from a given acceleration profile
     Csv(CsvSim),
 }
 
 #[derive(Debug, Args)]
 struct CsvSim {
+    /// loads acceleration data in a specific column from the csv file
     #[arg(long)]
     column: Option<String>,
 
+    /// the csv file path to load
     path: PathBuf,
 }
 
@@ -67,17 +75,20 @@ fn main() -> anyhow::Result<()> {
 }
 
 impl CsvSim {
-    fn get_callable(self) -> anyhow::Result<summation::InterpolateLookup> {
-        let full_path = if self.path.is_relative() {
+    fn get_path(&self) -> anyhow::Result<PathBuf> {
+        if self.path.is_relative() {
             let cwd = std::env::current_dir()
                 .context("failed to retrieve current working directory")?;
 
-            cwd.join(self.path)
+            Ok(cwd.join(&self.path))
         } else {
-            self.path
-        };
+            Ok(self.path.clone())
+        }
+    }
 
-        let mut rtn = Vec::new();
+    fn get_csv_reader(&self) -> anyhow::Result<csv::Reader<std::fs::File>> {
+        let path = self.get_path()?;
+
         let mut builder = csv::ReaderBuilder::new();
 
         if self.column.is_some() {
@@ -86,8 +97,13 @@ impl CsvSim {
             builder.has_headers(false);
         }
 
-        let mut reader = builder.from_path(&full_path)
-            .context("failed to load csv file")?;
+        builder.from_path(&path)
+            .context("failed to load csv file")
+    }
+
+    fn get_callable(self) -> anyhow::Result<summation::InterpolateLookup> {
+        let mut rtn = Vec::new();
+        let mut reader = self.get_csv_reader()?;
 
         let data_index = if let Some(column) = self.column {
             let mut maybe_index: Option<usize> = None;
@@ -129,58 +145,22 @@ impl CsvSim {
 
 fn run_sim<T>(length: usize, opts: SimOpts, accel_lookup: T)
 where
-    T: summation::Callable<f64>
+    T: Callable<f64>
 {
     println!("lenth: {length} step: {} iterations: {}", opts.step, opts.iterations);
-
-    /*
-    let sum_cb: summation::Summation<f64> = match opts.algo {
-        AppAlgo::LeftRiemann => summation::left_riemann,
-        AppAlgo::MidRiemann => summation::mid_riemann,
-        AppAlgo::RightRiemann => summation::right_riemann,
-        AppAlgo::Trapezoidal => summation::trapezoidal,
-    };
-    */
 
     let mut timer = time::Timing::default();
 
     for iter in 0..(opts.iterations) {
-        let mut running_vel = 0.0;
-        let mut running_pos = 0.0;
-        let mut vel_table = Vec::with_capacity(length);
-        let mut pos_table = Vec::with_capacity(length);
-        vel_table.push(0.0);
-        pos_table.push(0.0);
+        let mut vel_lookup = InterpolateLookup::from(Vec::with_capacity(length));
+        let mut pos_lookup = InterpolateLookup::from(Vec::with_capacity(length));
+        vel_lookup.push(0.0);
+        pos_lookup.push(0.0);
 
         let start = std::time::Instant::now();
 
-        for sec in 1..length {
-            let result = summation::trapezoidal(
-                (sec - 1) as f64,
-                sec as f64,
-                opts.step,
-                &accel_lookup,
-            );
-
-            running_vel += result;
-
-            vel_table.push(running_vel);
-        }
-
-        let vel_lookup = InterpolateLookup::from(vel_table);
-
-        for sec in 1..length {
-            let result = summation::trapezoidal(
-                (sec - 1) as f64,
-                sec as f64,
-                opts.step,
-                &vel_lookup,
-            );
-
-            running_pos += result;
-
-            pos_table.push(running_pos);
-        }
+        calc_range(length, opts.step, &accel_lookup, &mut vel_lookup);
+        calc_range(length, opts.step, &vel_lookup, &mut pos_lookup);
 
         timer.update(start.elapsed());
 
@@ -189,11 +169,31 @@ where
                 println!("final velocity: {last:+}");
             }
 
-            if let Some(last) = pos_table.last() {
+            if let Some(last) = pos_lookup.inner().last() {
                 println!("final position: {last:+}");
             }
         }
     }
 
     println!("time: {timer}");
+}
+
+fn calc_range<T>(length: usize, step: u32, calling: &T, updating: &mut InterpolateLookup)
+where
+    T: Callable<f64>
+{
+    let mut rolling = 0.0;
+
+    for sec in 1..length {
+        let result = summation::simpsons(
+            (sec - 1) as f64,
+            sec as f64,
+            step,
+            calling
+        );
+
+        rolling += result;
+
+        updating.push(rolling);
+    }
 }
