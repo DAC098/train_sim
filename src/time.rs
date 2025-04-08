@@ -30,7 +30,7 @@ impl Default for Timing {
             min: Duration::MAX,
             max: Duration::ZERO,
             total: Duration::ZERO,
-            counted: 0
+            counted: 0,
         }
     }
 }
@@ -43,10 +43,7 @@ impl Display for Timing {
             write!(
                 f,
                 "min {:#?} max {:#?} avg {:#?} total: {:#?}",
-                self.min,
-                self.max,
-                avg,
-                self.total
+                self.min, self.max, avg, self.total
             )
         } else {
             write!(f, "{:#?}", self.total)

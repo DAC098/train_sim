@@ -5,15 +5,16 @@ pub trait Callable<T> {
 impl<F, T> Callable<T> for F
 where
     F: Fn(T) -> T + 'static,
-    T: Sized
+    T: Sized,
 {
     fn call(&self, given: T) -> T {
         self(given)
     }
 }
 
+#[derive(Debug, Clone)]
 pub struct InterpolateLookup {
-    lookup: Vec<f64>
+    lookup: Vec<f64>,
 }
 
 impl InterpolateLookup {
@@ -41,9 +42,7 @@ impl InterpolateLookup {
 
 impl From<Vec<f64>> for InterpolateLookup {
     fn from(given: Vec<f64>) -> Self {
-        InterpolateLookup {
-            lookup: given
-        }
+        Self { lookup: given }
     }
 }
 
@@ -65,7 +64,7 @@ impl Callable<f64> for InterpolateLookup {
 
 pub fn left_riemann<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
 where
-    T: Callable<f64> + ?Sized
+    T: Callable<f64> + ?Sized,
 {
     assert_ne!(iterations, 0);
 
@@ -84,7 +83,7 @@ where
 
 pub fn mid_riemann<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
 where
-    T: Callable<f64> + ?Sized
+    T: Callable<f64> + ?Sized,
 {
     assert_ne!(iterations, 0);
 
@@ -104,7 +103,7 @@ where
 
 pub fn right_riemann<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
 where
-    T: Callable<f64> + ?Sized
+    T: Callable<f64> + ?Sized,
 {
     assert_ne!(iterations, 0);
 
@@ -123,7 +122,7 @@ where
 
 pub fn trapezoidal<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
 where
-    T: Callable<f64> + ?Sized
+    T: Callable<f64> + ?Sized,
 {
     assert_ne!(iterations, 0);
 
@@ -142,7 +141,7 @@ where
 
 pub fn simpsons<T>(lower: f64, upper: f64, iterations: u32, cb: &T) -> f64
 where
-    T: Callable<f64> + ?Sized
+    T: Callable<f64> + ?Sized,
 {
     assert_ne!(iterations, 0);
 
