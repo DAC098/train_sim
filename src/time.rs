@@ -1,6 +1,6 @@
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::time::Duration;
+use std::time::{Instant, Duration};
 
 pub struct Timing {
     min: Duration,
@@ -47,6 +47,34 @@ impl Display for Timing {
             )
         } else {
             write!(f, "{:#?}", self.total)
+        }
+    }
+}
+
+pub struct LogTimer {
+    last: Instant,
+    drtn: Duration
+}
+
+impl LogTimer {
+    pub fn update(&mut self) -> bool {
+        let now = Instant::now();
+
+        if now - self.last > self.drtn {
+            self.last = now;
+
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for LogTimer {
+    fn default() -> Self {
+        Self {
+            last: Instant::now(),
+            drtn: Duration::from_secs(10),
         }
     }
 }

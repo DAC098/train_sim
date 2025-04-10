@@ -31,10 +31,6 @@ impl InterpolateLookup {
         self.lookup.len()
     }
 
-    pub fn inner(&self) -> &[f64] {
-        self.lookup.as_slice()
-    }
-
     pub fn push(&mut self, given: f64) {
         self.lookup.push(given);
     }
