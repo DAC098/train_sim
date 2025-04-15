@@ -1,14 +1,24 @@
+// NOTE: comments are the usual double slash but for documentation it will be a
+// triple slash. some of the tools that rust provides use these doc blocks to
+// generate documents that can be accessed outside of the code.
+
 use std::path::PathBuf;
 use std::str::FromStr;
 
 use anyhow::Context;
 use clap::{Args, Parser, Subcommand, ValueEnum};
 
+// indicates that there are nested modules that can contain code in a different
+// namespace
 mod summation;
 mod time;
 
+// once the mod is known we can access it similar to imported modules or the
+// std namespace
 use summation::InterpolateLookup;
 
+/// an application for running "train" simulations of a given acceleration
+/// profile that will calculate the final velocity and position of the train
 #[derive(Debug, Parser)]
 struct App {
     /// specifies the number of threads to use for calculations
@@ -22,6 +32,7 @@ struct App {
     sim: SimKind,
 }
 
+/// common options between simulations
 #[derive(Debug, Clone, Args)]
 struct SimOpts {
     /// specifies the summation algorithm to use for the simulation
@@ -39,6 +50,8 @@ struct SimOpts {
     step: u32,
 }
 
+/// the available summation algorithms that the simulation is capable of
+/// running
 #[derive(Debug, Clone, ValueEnum)]
 enum AppAlgo {
     LeftRiemann,
@@ -48,12 +61,16 @@ enum AppAlgo {
     Simpsons,
 }
 
+/// the different kins of simulations available for the program to run
+///
+/// currently the only supported kind is loading data from a csv file
 #[derive(Debug, Subcommand)]
 enum SimKind {
     /// runs a simulation from a given acceleration profile
     Csv(CsvSim),
 }
 
+/// options for running a simulation from a specified csv file
 #[derive(Debug, Args)]
 struct CsvSim {
     /// loads acceleration data in a specific column from the csv file
@@ -65,6 +82,8 @@ struct CsvSim {
 }
 
 fn main() -> anyhow::Result<()> {
+    // pull in the command line arguments provided at runtime and parse into
+    // the App struct
     let args = App::parse();
 
     match args.sim {
@@ -75,6 +94,8 @@ fn main() -> anyhow::Result<()> {
             if args.threads == 1 {
                 run_sim(length, args.opts, cb);
             } else {
+                // construct the rayon thread pool with the specified number of
+                // threads and make it globaly available
                 rayon::ThreadPoolBuilder::new()
                     .num_threads(args.threads)
                     .build_global()
@@ -89,6 +110,10 @@ fn main() -> anyhow::Result<()> {
 }
 
 impl CsvSim {
+    /// retrieves the path of the specified csv file
+    ///
+    /// if the given path is relative then it will be resolved using the
+    /// current working directory
     fn get_path(&self) -> anyhow::Result<PathBuf> {
         if self.path.is_relative() {
             let cwd =
@@ -100,6 +125,7 @@ impl CsvSim {
         }
     }
 
+    /// builds the [`csv::Reader`] from the provided csv path
     fn get_csv_reader(&self) -> anyhow::Result<csv::Reader<std::fs::File>> {
         let path = self.get_path()?;
 
@@ -114,6 +140,8 @@ impl CsvSim {
         builder.from_path(&path).context("failed to load csv file")
     }
 
+    /// parses the given csv file into a lookup table that supports
+    /// interpolation
     fn get_callable(self) -> anyhow::Result<summation::InterpolateLookup> {
         let mut rtn = Vec::new();
         let mut reader = self.get_csv_reader()?;
@@ -154,14 +182,16 @@ impl CsvSim {
     }
 }
 
+/// runs the non multi-threaded train sim with the provided lookup table
 fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
     println!(
         "lenth: {length} step: {} iterations: {}",
         opts.step, opts.iterations
     );
 
+    // let the type system decide what this is supposed to be as I was having
+    // trouble with getting it to behave
     let sum_cb = match opts.algo {
-        //_ => summation::left_riemann as fn(f64, f64, u32, &InterpolateLookup) -> f64,
         AppAlgo::LeftRiemann => summation::left_riemann,
         AppAlgo::MidRiemann => summation::mid_riemann,
         AppAlgo::RightRiemann => summation::right_riemann,
@@ -173,15 +203,25 @@ fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
     let mut timer = time::Timing::default();
 
     for iter in 0..(opts.iterations) {
+        // pre-allocate the lookup table before starting the timer
         let mut vel_lookup = InterpolateLookup::from(Vec::with_capacity(length));
-        let mut pos_lookup = InterpolateLookup::from(Vec::with_capacity(length));
         vel_lookup.push(0.0);
-        pos_lookup.push(0.0);
 
         let start = std::time::Instant::now();
 
-        let vel_final = calc_range(length, opts.step, &accel_lookup, sum_cb, &mut vel_lookup);
-        let pos_final = calc_range(length, opts.step, &vel_lookup, sum_cb, &mut pos_lookup);
+        let mut vel_final = 0.0f64;
+
+        for sec in 1..length {
+            let result = sum_cb((sec - 1) as f64, sec as f64, opts.step, &accel_lookup);
+
+            vel_final += result;
+
+            vel_lookup.push(vel_final);
+        }
+
+        let pos_final = (1..length)
+            .map(|sec| sum_cb((sec - 1) as f64, sec as f64, opts.step, &vel_lookup))
+            .sum::<f64>();
 
         timer.update(start.elapsed());
 
@@ -198,27 +238,10 @@ fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
     println!("time: {timer}");
 }
 
-fn calc_range(
-    length: usize,
-    step: u32,
-    calling: &InterpolateLookup,
-    sum_cb: fn(f64, f64, u32, &InterpolateLookup) -> f64,
-    updating: &mut InterpolateLookup,
-) -> f64 {
-    let mut rolling = 0.0;
-
-    for sec in 1..length {
-        let result = sum_cb((sec - 1) as f64, sec as f64, step, calling);
-
-        rolling += result;
-
-        updating.push(rolling);
-    }
-
-    rolling
-}
-
+/// runs the multi-threaded train sim with the provided lookup table
 fn run_sim_rayon(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
+    // since this is the only spot that will use the rayon module we can just
+    // import it here.
     use rayon::prelude::*;
 
     println!(
@@ -227,7 +250,6 @@ fn run_sim_rayon(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) 
     );
 
     let sum_cb = match opts.algo {
-        //_ => summation::left_riemann as fn(f64, f64, u32, &InterpolateLookup) -> f64,
         AppAlgo::LeftRiemann => summation::left_riemann,
         AppAlgo::MidRiemann => summation::mid_riemann,
         AppAlgo::RightRiemann => summation::right_riemann,
@@ -244,7 +266,10 @@ fn run_sim_rayon(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) 
 
         let start = std::time::Instant::now();
 
-        // parallel
+        // we are going to calculate all of the differences between the
+        // acceleration values and then sum them together after they have been
+        // calculated. once everything has been calculated we will collected
+        // them into a vec of f64's and the ordering will be preserved.
         let vel_diffs = (1..length)
             .into_par_iter()
             .map(|sec| sum_cb((sec - 1) as f64, sec as f64, opts.step, &accel_lookup))
@@ -258,7 +283,6 @@ fn run_sim_rayon(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) 
             vel_lookup.push(vel_rolling);
         }
 
-        // parallel
         let pos_final = (1..length)
             .into_par_iter()
             .map(|sec| sum_cb((sec - 1) as f64, sec as f64, opts.step, &vel_lookup))
