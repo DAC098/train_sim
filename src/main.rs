@@ -2,84 +2,20 @@
 // triple slash. some of the tools that rust provides use these doc blocks to
 // generate documents that can be accessed outside of the code.
 
-use std::path::PathBuf;
-use std::str::FromStr;
-
 use anyhow::Context;
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::Parser;
 
 // indicates that there are nested modules that can contain code in a different
 // namespace
+mod args;
 mod summation;
 mod time;
+
+use args::{App, AppAlgo, SimKind, SimOpts};
 
 // once the mod is known we can access it similar to imported modules or the
 // std namespace
 use summation::InterpolateLookup;
-
-/// an application for running "train" simulations of a given acceleration
-/// profile that will calculate the final velocity and position of the train
-#[derive(Debug, Parser)]
-struct App {
-    /// specifies the number of threads to use for calculations
-    #[arg(short, long, default_value("1"))]
-    threads: usize,
-
-    #[command(flatten)]
-    opts: SimOpts,
-
-    #[command(subcommand)]
-    sim: SimKind,
-}
-
-/// common options between simulations
-#[derive(Debug, Clone, Args)]
-struct SimOpts {
-    /// specifies the summation algorithm to use for the simulation
-    #[arg(short, long, default_value("left-riemann"))]
-    algo: AppAlgo,
-
-    /// determines the number of times to run the program, for benchmarking
-    /// purposes
-    #[arg(short, long, default_value("100"))]
-    iterations: u32,
-
-    /// specifies the amount of steps to take in between each summation
-    /// calculation
-    #[arg(short, long, default_value("100"))]
-    step: u32,
-}
-
-/// the available summation algorithms that the simulation is capable of
-/// running
-#[derive(Debug, Clone, ValueEnum)]
-enum AppAlgo {
-    LeftRiemann,
-    MidRiemann,
-    RightRiemann,
-    Trapezoidal,
-    Simpsons,
-}
-
-/// the different kins of simulations available for the program to run
-///
-/// currently the only supported kind is loading data from a csv file
-#[derive(Debug, Subcommand)]
-enum SimKind {
-    /// runs a simulation from a given acceleration profile
-    Csv(CsvSim),
-}
-
-/// options for running a simulation from a specified csv file
-#[derive(Debug, Args)]
-struct CsvSim {
-    /// loads acceleration data in a specific column from the csv file
-    #[arg(long)]
-    column: Option<String>,
-
-    /// the csv file path to load
-    path: PathBuf,
-}
 
 fn main() -> anyhow::Result<()> {
     // pull in the command line arguments provided at runtime and parse into
@@ -107,79 +43,6 @@ fn main() -> anyhow::Result<()> {
     };
 
     Ok(())
-}
-
-impl CsvSim {
-    /// retrieves the path of the specified csv file
-    ///
-    /// if the given path is relative then it will be resolved using the
-    /// current working directory
-    fn get_path(&self) -> anyhow::Result<PathBuf> {
-        if self.path.is_relative() {
-            let cwd =
-                std::env::current_dir().context("failed to retrieve current working directory")?;
-
-            Ok(cwd.join(&self.path))
-        } else {
-            Ok(self.path.clone())
-        }
-    }
-
-    /// builds the [`csv::Reader`] from the provided csv path
-    fn get_csv_reader(&self) -> anyhow::Result<csv::Reader<std::fs::File>> {
-        let path = self.get_path()?;
-
-        let mut builder = csv::ReaderBuilder::new();
-
-        if self.column.is_some() {
-            builder.has_headers(true);
-        } else {
-            builder.has_headers(false);
-        }
-
-        builder.from_path(&path).context("failed to load csv file")
-    }
-
-    /// parses the given csv file into a lookup table that supports
-    /// interpolation
-    fn get_callable(self) -> anyhow::Result<summation::InterpolateLookup> {
-        let mut rtn = Vec::new();
-        let mut reader = self.get_csv_reader()?;
-
-        let data_index = if let Some(column) = self.column {
-            let mut maybe_index: Option<usize> = None;
-            let headers = reader.headers().context("failed to retrieve csv headers")?;
-
-            for (index, header) in headers.iter().enumerate() {
-                if header == column {
-                    maybe_index = Some(index);
-
-                    break;
-                }
-            }
-
-            maybe_index.context("failed to find the desired csv column")?
-        } else {
-            0
-        };
-
-        let records = reader.records();
-
-        for (index, try_record) in records.enumerate() {
-            let record = try_record
-                .with_context(|| format!("failed to retrieve csv entry. {}", index + 1))?;
-
-            let value = record
-                .get(data_index)
-                .with_context(|| format!("failed to retrieve csv entry column. {}", index + 1))?;
-
-            rtn.push(f64::from_str(value).with_context(|| {
-                format!("failed to convert csv entry into float. {}", index + 1)
-            })?);
-        }
-
-        Ok(InterpolateLookup::from(rtn))
-    }
 }
 
 /// runs the non multi-threaded train sim with the provided lookup table
@@ -235,7 +98,7 @@ fn run_sim(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) {
         }
     }
 
-    println!("time: {timer}");
+    println!("{timer}");
 }
 
 /// runs the multi-threaded train sim with the provided lookup table
@@ -300,5 +163,5 @@ fn run_sim_rayon(length: usize, opts: SimOpts, accel_lookup: InterpolateLookup) 
         }
     }
 
-    println!("time: {timer}");
+    println!("{timer}");
 }

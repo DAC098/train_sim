@@ -2,7 +2,7 @@
 
 use std::default::Default;
 use std::fmt::{Display, Formatter, Result as FmtResult};
-use std::time::{Instant, Duration};
+use std::time::{Duration, Instant};
 
 /// collects timing information for convience
 ///
@@ -67,11 +67,23 @@ impl Display for Timing {
 
             write!(
                 f,
-                "min {:#?} max {:#?} avg {:#?} total: {:#?}",
-                self.min, self.max, avg, self.total
+                "min: {}.{:09}\nmax: {}.{:09}\navg: {}.{:09}\ntot: {}.{:09}",
+                self.min.as_secs(),
+                self.min.subsec_nanos(),
+                self.max.as_secs(),
+                self.max.subsec_nanos(),
+                avg.as_secs(),
+                avg.subsec_nanos(),
+                self.total.as_secs(),
+                self.total.subsec_nanos(),
             )
         } else {
-            write!(f, "{:#?}", self.total)
+            write!(
+                f,
+                "total: {}.{:09}",
+                self.total.as_secs(),
+                self.total.subsec_nanos()
+            )
         }
     }
 }
@@ -100,7 +112,7 @@ pub struct LogTimer {
     /// total duration of time that can pass
     ///
     /// defaults to 10 seconds
-    drtn: Duration
+    drtn: Duration,
 }
 
 impl LogTimer {
