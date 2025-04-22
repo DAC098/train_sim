@@ -183,7 +183,7 @@ where
     let step = (upper - lower) / (iterations as f64);
     let mut sum = (cb.call(upper) + cb.call(lower)) / 2.0;
 
-    for iter in 0..iterations {
+    for iter in 1..iterations {
         let i = iter as f64;
         let x = lower + i * step;
 
